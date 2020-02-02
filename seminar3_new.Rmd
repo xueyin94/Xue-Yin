@@ -1,0 +1,121 @@
+---
+title: "Seminar3_new"
+author: "Xue Yin"
+date: "01/02/2020"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("GEOquery")
+#BiocManager::install("biomaRt")
+library(GEOquery)
+library(biomaRt)
+#install.packages("tidyverse")
+library(tidyverse)
+#install.packages("data.table")
+library(data.table)
+#install.packages("reshape2")
+library(reshape2)
+gds <- getGEO("GDS507")
+#we can use str() to peak at the structure of a data object. 
+str(gds)
+meta_data <- data.frame(Sample = gds@dataTable@columns$sample, disease = gds@dataTable@columns$disease.state)
+#we grab this info from the appropriate slots above. 
+
+gds_data <- gds@dataTable@table
+
+head(gds_data)
+nrow(gds_data)
+ncol(gds_data)
+#some gene names are duplicated, because there are multiple probes that map to the same gene
+#We exclude the first and second columns because they hold the probe and gene names, respectively. 
+apply(gds_data[,-c(1, 2)], 2, median)
+
+head(iris)
+glimpse(iris)
+#select all rows with sepal length greater than 5. 
+iris %>% 
+    filter(Sepal.Length > 5) %>% 
+    head()
+iris %>% 
+    group_by(Species) %>% 
+    head()
+#select the column called "Sepal.Width"
+iris %>% 
+    dplyr::select(Sepal.Width) %>% 
+    head()
+iris %>%
+    group_by(Species) %>% 
+    mutate(Capitalized_names = toupper(Species)) %>% 
+    head()
+iris %>% 
+    group_by(Species) %>% 
+    summarize(average_sepal_length = mean(Sepal.Length), n = n()) %>% 
+    head()
+iris %>% 
+    arrange(desc(Species)) %>% 
+    head()
+#join band members with their instruments by "name"
+band_members %>% left_join(band_instruments) 
+melted_data <- melt(gds_data, id.vars = c("ID_REF", "IDENTIFIER"), var = "Sample")
+head(melted_data)
+melted_data %>% 
+    group_by(Sample) %>% 
+    summarize(mean = mean(value))
+(new_melted_data <- melted_data %>% 
+    group_by(Sample, IDENTIFIER) %>% 
+    summarize(Count = mean(value)))
+#open connection between biomaRt and R. 
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+#function that takes in data frame, and outputs same data frame with associated chromosome annotations.
+identify_gene_names <- function(df){
+    names(df) <- c("Sample", "hgnc_symbol", "Count")
+    names <- getBM( attributes=c("hgnc_symbol", "chromosome_name") , filters= "hgnc_symbol", values = unique(df$hgnc_symbol), mart = human)
+    left_join(df, names, by = "hgnc_symbol")
+}
+
+
+#There's a lot of variation in how the chromosomal location is annotated. To simplify things, let's filter out all genes with annotations that are not numeric numbers between 1 and 23, X or Y. 
+data_with_chromosome <- identify_gene_names(new_melted_data) %>% 
+    filter(chromosome_name %in% c(1:23, "X", "Y"))
+full_data <- left_join(data_with_chromosome, meta_data, by = "Sample")
+full_data %>% 
+    group_by(disease) %>% 
+    filter(chromosome_name == "X") %>% 
+    summarize(mean = mean(Count))
+#choose random number between 1 and however many genes we have. 
+set.seed(5747540)
+sample_to_choose <- sample(1:length(unique(full_data$hgnc_symbol)), size = 100)
+#choose genes that correspond to those numbers in a list of genes. 
+names_to_choose <- as.character(unique(full_data$hgnc_symbol)[sample_to_choose])
+full_data %>% 
+    filter(hgnc_symbol %in% names_to_choose) %>% 
+    group_by(Sample) %>% 
+    ggplot(aes(x = as.factor(chromosome_name), y = Count)) + geom_point()
+head(full_data)
+full_data %>% 
+    filter(hgnc_symbol %in% names_to_choose) %>% 
+    group_by(Sample) %>% 
+    mutate(Rate = Count/sum(Count))%>% 
+    mutate(sum_Count = sum(Count))
+    #ggplot(aes(x = as.factor(chromosome_name), y = sum_Count) + geom_point()
+full_data %>% 
+    group_by(hgnc_symbol) %>% 
+    summarize( pvalue = t.test(Count ~ disease)$p.value)%>%
+    ggplot() + geom_density(aes(x=pvalue))
+```
+
